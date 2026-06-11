@@ -19,6 +19,11 @@ r = requests.get(
 ).json()
 
 if not r['success']:
+    # A token scoped without Workers KV (fresh D1-only deployments) gets
+    # code 10000 here; there is nothing to migrate in that case.
+    if any(e.get('code') == 10000 for e in r.get('errors', [])):
+        print("Token has no Workers KV access - fresh deployment, skipping KV migration.")
+        exit(0)
     print("Error fetching KV namespace info: ", r)
     exit(1)
 
