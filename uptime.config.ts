@@ -8,7 +8,7 @@ const pageConfig: PageConfig = {
   title: 'lishuyu.app status',
   links: [
     { link: 'https://github.com/StevenLi-phoenix', label: 'GitHub' },
-    { link: 'https://api.lishuyu.app/resume/', label: 'Resume', highlight: true },
+    { link: 'https://shuyuli.com/', label: 'Resume', highlight: true },
   ],
 }
 
@@ -93,14 +93,17 @@ const workerConfig: WorkerConfig = {
       id: 'locationservice',
       name: 'Location',
       method: 'GET',
-      target: 'https://api.lishuyu.app/location/health',
+      // moved off the api gateway to its own subdomain (2026-06-11)
+      target: 'https://location.lishuyu.app/health',
     },
     {
       id: 'resume',
       name: 'Resume',
       method: 'GET',
-      target: 'https://api.lishuyu.app/resume/',
-      statusPageLink: 'https://api.lishuyu.app/resume/',
+      // the user-facing site (readme.lishuyu.app is an alias); the raw API
+      // lives at api.lishuyu.app/resume/ behind it
+      target: 'https://shuyuli.com/',
+      statusPageLink: 'https://shuyuli.com/',
     },
   ],
 }
