@@ -97,6 +97,13 @@ const workerConfig: WorkerConfig = {
       target: 'https://location.lishuyu.app/health',
     },
     {
+      id: 'blog',
+      name: 'Blog',
+      method: 'GET',
+      target: 'https://blog.lishuyu.app/',
+      statusPageLink: 'https://blog.lishuyu.app/',
+    },
+    {
       id: 'resume',
       name: 'Resume',
       method: 'GET',
