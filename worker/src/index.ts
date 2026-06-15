@@ -28,12 +28,17 @@ const Worker = {
     let statusChanged = false
     const currentTimeSecond = Math.round(Date.now() / 1000)
 
-    // Parallel check multiple monitors
-    // Max concurrent connection is 6 limited by Cloudflare Workers, we use 5 here to be safe
+    // Parallel check multiple monitors.
+    // Cloudflare Workers cap concurrent connections at 6; UptimeFlare used 5.
+    // But our origin is a single-vCPU box that serializes TLS handshakes, so
+    // fanning out 5 checks at once makes each handshake queue and the reported
+    // latency balloons (~90ms solo -> ~450-770ms at 5-8 concurrent). Lower
+    // concurrency staggers the checks so the origin handles ~1-2 handshakes at a
+    // time. Configurable via workerConfig.checkConcurrency (default 2).
     type CheckResult = { id: string; location: string; status: { ping: number; up: boolean; err: string } }
     let checkQueue: Promise<CheckResult>[] = []
     let checkResult: Record<string, CheckResult> = {};
-    const limit = pLimit(5);
+    const limit = pLimit(workerConfig.checkConcurrency ?? 2);
     for (const monitor of workerConfig.monitors) {
       checkQueue.push(limit(() => doMonitor(monitor, workerLocation, env)))
     }

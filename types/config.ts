@@ -50,6 +50,10 @@ export type MonitorTarget = {
 export type WorkerConfig<TEnv = Env> = {
   kvWriteCooldownMinutes?: number
   passwordProtection?: string
+  // Max monitors checked concurrently per cron tick. The origin is a single-vCPU
+  // box that serializes TLS handshakes, so a high fan-out makes every check queue
+  // and inflates the reported latency. Default 2 (see uptime.config.ts).
+  checkConcurrency?: number
   monitors: MonitorTarget[]
   notification?: Notification
   callbacks?: Callbacks<TEnv>

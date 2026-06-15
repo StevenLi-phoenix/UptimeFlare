@@ -60,6 +60,14 @@ const pageConfig: PageConfig = {
 
 const workerConfig: WorkerConfig = {
   kvWriteCooldownMinutes: 3,
+  // The origin is a single-vCPU droplet that serializes TLS handshakes. Checking
+  // all monitors at once (the old pLimit(5)) made every handshake queue, so the
+  // status page reported ~400-700ms when the box is actually ~6-10ms + one
+  // handshake. Stagger to 2-at-a-time; drop to 1 for the lowest reading (but a
+  // timing-out monitor will then serialize the whole cycle). It's a single-user
+  // platform — no real traffic competes, so this just stops the monitor from
+  // stampeding its own origin.
+  checkConcurrency: 2,
   monitors: [
     {
       id: 'registry',
