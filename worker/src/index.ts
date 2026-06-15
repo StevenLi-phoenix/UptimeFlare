@@ -9,6 +9,10 @@ import pLimit from 'p-limit'
 export interface Env {
   REMOTE_CHECKER_DO: DurableObjectNamespace<RemoteChecker>
   UPTIMEFLARE_D1: D1Database
+  // Secret binding (see deploy.tf var.resend_api_key). Used by the alert
+  // callbacks in uptime.config.ts to email downtime via Resend, straight from
+  // the edge — independent of the monitored droplet.
+  RESEND_API_KEY?: string
 }
 
 const Worker = {

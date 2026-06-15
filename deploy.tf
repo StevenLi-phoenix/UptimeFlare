@@ -21,6 +21,17 @@ variable "enable_do_migration" {
   default = false
 }
 
+# Resend API key for downtime email alerts (read from $TF_VAR_resend_api_key,
+# sourced from the RESEND_API_KEY GitHub Actions secret). Exposed to the worker
+# as an encrypted secret_text binding — never stored in the script source or the
+# public status-page bundle. Empty default keeps `terraform plan` working if the
+# secret is absent; the alert callback simply no-ops when the key is blank.
+variable "resend_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
 resource "cloudflare_d1_database" "uptimeflare_d1" {
   account_id            = var.CLOUDFLARE_ACCOUNT_ID
   name                  = "uptimeflare_d1"
@@ -59,6 +70,10 @@ resource "cloudflare_workers_script" "uptimeflare_worker" {
     name = "UPTIMEFLARE_D1"
     type = "d1"
     id   = cloudflare_d1_database.uptimeflare_d1.id
+    }, {
+    name = "RESEND_API_KEY"
+    type = "secret_text"
+    text = var.resend_api_key
   }]
 }
 
