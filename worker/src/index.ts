@@ -277,12 +277,4 @@ export class RemoteChecker extends DurableObject {
       status: status,
     }
   }
-
-  async kill() {
-    // Throwing an error in `blockConcurrencyWhile` will terminate the Durable Object instance
-    // https://developers.cloudflare.com/durable-objects/api/state/#blockconcurrencywhile
-    this.ctx.blockConcurrencyWhile(async () => {
-      throw 'killed'
-    })
-  }
 }

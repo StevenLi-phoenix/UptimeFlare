@@ -370,12 +370,14 @@ export async function doMonitor(monitor: MonitorTarget, defaultLocation: string,
           locationHint: doLoc as DurableObjectLocationHint,
         })
         resp = await doStub.getLocationAndStatus(monitor)
-        try {
-          // Kill the DO instance after use, to avoid extra resource usage
-          await doStub.kill()
-        } catch (err) {
-          // An error here is expected, ignore it
-        }
+        // Don't force-evict the DO. The old `doStub.kill()` trick threw inside
+        // blockConcurrencyWhile to terminate the instance, but that throw always
+        // surfaces as an uncaught error in the DO invocation AND a disconnect
+        // error on this side — 2 error-level log events per check. With 12
+        // monitors on a 1-minute cron that's ~1.4k error logs/hour, which
+        // dominated Workers observability. RemoteChecker holds no persistent
+        // state and idle DOs auto-hibernate (no idle billing), so eviction buys
+        // effectively nothing. Let it hibernate on its own.
       } else if (monitor.checkProxy.startsWith('globalping://')) {
         resp = await getStatusWithGlobalPing(monitor)
       } else {

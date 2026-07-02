@@ -167,7 +167,10 @@ const workerConfig: WorkerConfig = {
       ...NYC_ORIGIN_CHECK,
       name: 'Time',
       method: 'GET',
-      target: 'https://api.lishuyu.app/timeservice/health',
+      // Gateway path shortened from /timeservice to /time (2026-07-02, matches
+      // registry endpoint + the short-segment convention of the other services).
+      // The old /timeservice/health 404'd, showing the service as down.
+      target: 'https://api.lishuyu.app/time/health',
     },
     {
       id: 'locationservice',
