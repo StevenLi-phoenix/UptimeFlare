@@ -104,7 +104,10 @@ const workerConfig: WorkerConfig = {
       ...NYC_ORIGIN_CHECK,
       name: 'Deployer',
       method: 'GET',
-      target: 'https://deploy.lishuyu.app/health',
+      // Deployer moved off deploy.lishuyu.app 2026-07-02 — subdomains are
+      // reserved for services with a real frontend; API-only services live
+      // behind the api.lishuyu.app path gateway.
+      target: 'https://api.lishuyu.app/deploy/health',
       tooltip: 'Webhook deploy pipeline',
     },
     {
