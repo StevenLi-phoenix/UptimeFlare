@@ -58,6 +58,19 @@ const pageConfig: PageConfig = {
   ],
 }
 
+// --- Check from near the origin (Durable Object in eastern North America) ----
+// Cloudflare schedules cron workers on underutilized machines, which in practice
+// lands them in Europe (status data showed "location":"FRA"). Every droplet
+// service therefore read ~100-125ms — that's one transatlantic TLS setup + RTT
+// to the NYC1 droplet, NOT service latency (measured on-box: /health is 2-5ms).
+// UptimeFlare's `worker://` checkProxy runs the actual check inside a Durable
+// Object pinned via locationHint; `enam` (eastern North America) puts the prober
+// a few ms from the droplet, so the reported number is dominated by the service
+// itself. Fallback re-runs the check from the cron colo if the DO path errors,
+// trading an inflated reading for a false DOWN. Edge-hosted sites (blog, resume
+// on Cloudflare Pages) stay on plain checks — they're already measured at the edge.
+const NYC_ORIGIN_CHECK = { checkProxy: 'worker://enam', checkProxyFallback: true }
+
 const workerConfig: WorkerConfig = {
   kvWriteCooldownMinutes: 3,
   // The origin is a single-vCPU droplet that serializes TLS handshakes, so
@@ -70,6 +83,7 @@ const workerConfig: WorkerConfig = {
   monitors: [
     {
       id: 'registry',
+      ...NYC_ORIGIN_CHECK,
       name: 'Registry',
       method: 'GET',
       target: 'https://registry.lishuyu.app/health',
@@ -77,6 +91,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'auth',
+      ...NYC_ORIGIN_CHECK,
       name: 'Auth',
       method: 'GET',
       target: 'https://auth.lishuyu.app/api/users/me',
@@ -86,6 +101,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'deployer',
+      ...NYC_ORIGIN_CHECK,
       name: 'Deployer',
       method: 'GET',
       target: 'https://deploy.lishuyu.app/health',
@@ -93,6 +109,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'displayservice',
+      ...NYC_ORIGIN_CHECK,
       name: 'TRMNL Display',
       method: 'GET',
       target: 'https://display.lishuyu.app/health',
@@ -101,6 +118,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'messageservice',
+      ...NYC_ORIGIN_CHECK,
       name: 'Messages',
       method: 'GET',
       target: 'https://api.lishuyu.app/message/health',
@@ -108,42 +126,49 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'kvservice',
+      ...NYC_ORIGIN_CHECK,
       name: 'KV',
       method: 'GET',
       target: 'https://api.lishuyu.app/kv/health',
     },
     {
       id: 'logservice',
+      ...NYC_ORIGIN_CHECK,
       name: 'Logs',
       method: 'GET',
       target: 'https://api.lishuyu.app/logs/health',
     },
     {
       id: 'oss',
+      ...NYC_ORIGIN_CHECK,
       name: 'OSS',
       method: 'GET',
       target: 'https://api.lishuyu.app/oss/health',
     },
     {
       id: 'secretsservice',
+      ...NYC_ORIGIN_CHECK,
       name: 'Secrets',
       method: 'GET',
       target: 'https://api.lishuyu.app/secrets/health',
     },
     {
       id: 'files',
+      ...NYC_ORIGIN_CHECK,
       name: 'Files',
       method: 'GET',
       target: 'https://api.lishuyu.app/files/health',
     },
     {
       id: 'timeservice',
+      ...NYC_ORIGIN_CHECK,
       name: 'Time',
       method: 'GET',
       target: 'https://api.lishuyu.app/timeservice/health',
     },
     {
       id: 'locationservice',
+      ...NYC_ORIGIN_CHECK,
       name: 'Location',
       method: 'GET',
       // moved off the api gateway to its own subdomain (2026-06-11)
