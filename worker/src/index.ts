@@ -240,6 +240,17 @@ const Worker = {
       statusChanged ||= monitorStatusChanged
     }
 
+    // Flush whatever the per-monitor callbacks buffered this tick (the alert
+    // batcher in uptime.config.ts). Runs once per cron tick so a platform-wide
+    // flap produces one summary email, not one email per monitor.
+    try {
+      console.log('Calling config onCycleEnd callback...')
+      await workerConfig.callbacks?.onCycleEnd?.(env, currentTimeSecond)
+    } catch (e) {
+      console.log('Error calling onCycleEnd callback: ')
+      console.log(e)
+    }
+
     console.log(
       `statusChanged: ${statusChanged}, lastUpdate: ${state.data.lastUpdate}, currentTime: ${currentTimeSecond}`
     )

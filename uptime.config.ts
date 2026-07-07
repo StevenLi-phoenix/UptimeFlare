@@ -3,6 +3,7 @@
 
 // Don't edit this line
 import { MaintenanceConfig, PageConfig, WorkerConfig } from './types/config'
+import type { Env } from './worker/src'
 
 // --- Downtime email alerting (Resend, sent directly from the Worker) ---------
 // Alerts go out via Resend's HTTP API straight from the Cloudflare Worker, on
@@ -15,38 +16,184 @@ import { MaintenanceConfig, PageConfig, WorkerConfig } from './types/config'
 // RESEND_API_KEY is a Worker secret binding (deploy.tf var.resend_api_key,
 // injected from the RESEND_API_KEY GitHub Actions secret at deploy time). It is
 // never committed and never reaches the public status-page bundle.
+//
+// Batching + threading: onIncident/onStatusChange fire once per monitor, so
+// emailing from them turned one platform-wide flap into a dozen emails (one
+// per service). They now only buffer events; onCycleEnd sends AT MOST ONE
+// summary email per cron tick. All mails of one incident form a single Gmail
+// thread: the first DOWN summary is the root, every later mail (more downs,
+// recoveries, all-clear) is a reply carrying In-Reply-To/References — the
+// Resend-documented threading pattern — plus a `Re:`-prefixed subject (Gmail
+// threads on References AND matching base subject). Thread state (root
+// subject, our Message-IDs, which monitors were alerted) persists in the
+// worker's D1 store under ALERT_THREAD_KEY and is cleared when the last
+// alerted monitor recovers, so the next incident starts a fresh thread.
 const ALERT_TO = 'lishuyustevenli@gmail.com'
 const ALERT_FROM = 'lishuyu.app status <noreply@mail.lishuyu.app>'
 // Only alert on outages sustained past this many seconds. The Cloudflare<->origin
 // path flaps in short (~1 min) bursts; this debounces them so only real outages
 // page. The cron runs every 60s, so the DOWN check uses a 60s-wide window.
 const ALERT_GRACE_SEC = 120
+const STATUS_PAGE = 'https://status.lishuyu.app/'
+const ALERT_THREAD_KEY = 'alert_email_thread'
+const ALERT_MSGID_DOMAIN = 'mail.lishuyu.app'
 
+type AlertEnv = Pick<Env, 'RESEND_API_KEY' | 'UPTIMEFLARE_D1'>
+
+// Per-tick buffers. Module-globals are safe here: they're only filled by the
+// per-monitor callbacks of one scheduled() run and drained by onCycleEnd at
+// the end of that same run.
+let pendingDown: { id: string; name: string; target: string; reason: string; downSec: number }[] =
+  []
+let pendingUp: { id: string; name: string; downSec: number }[] = []
+
+type AlertThread = {
+  subject: string // root subject; replies send `Re: ${subject}`
+  refs: string[] // Message-IDs of the thread so far, root first (References header)
+  lastId: string // Message-ID of the most recent mail (In-Reply-To header)
+  alerted: { id: string; name: string }[] // monitors a DOWN email actually named, still down
+}
+
+async function getAlertThread(env: AlertEnv): Promise<AlertThread | null> {
+  const row = await env.UPTIMEFLARE_D1.prepare('SELECT value FROM uptimeflare WHERE key = ?')
+    .bind(ALERT_THREAD_KEY)
+    .first<{ value: string }>()
+  return row?.value ? JSON.parse(row.value) : null
+}
+
+async function putAlertThread(env: AlertEnv, thread: AlertThread | null): Promise<void> {
+  await env.UPTIMEFLARE_D1.prepare(
+    'INSERT INTO uptimeflare (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;'
+  )
+    .bind(ALERT_THREAD_KEY, thread ? JSON.stringify(thread) : '')
+    .run()
+}
+
+// Sends one alert email; returns the sent mail's Message-ID for threading, or
+// null if the send failed. Resend's docs don't say whether a custom Message-ID
+// header is passed through or rewritten, so after sending we read back the
+// message_id Resend actually assigned (GET /emails/{id}) and prefer that;
+// fall back to the custom Message-ID we set.
 async function sendAlertEmail(
-  env: { RESEND_API_KEY?: string },
+  env: AlertEnv,
   subject: string,
-  text: string
-): Promise<void> {
+  text: string,
+  headers: Record<string, string>
+): Promise<string | null> {
   if (!env.RESEND_API_KEY) {
     console.log('RESEND_API_KEY not configured; skipping alert email')
-    return
+    return null
+  }
+  const auth = {
+    Authorization: `Bearer ${env.RESEND_API_KEY}`,
+    'content-type': 'application/json',
   }
   try {
     const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ from: ALERT_FROM, to: ALERT_TO, subject, text }),
+      headers: auth,
+      body: JSON.stringify({ from: ALERT_FROM, to: ALERT_TO, subject, text, headers }),
     })
     if (!resp.ok) {
       console.log(`Resend alert failed: ${resp.status} ${await resp.text()}`)
-    } else {
-      console.log(`Resend alert sent: ${subject}`)
+      return null
     }
+    console.log(`Resend alert sent: ${subject}`)
+    const { id } = (await resp.json()) as { id: string }
+    try {
+      const detail = await fetch(`https://api.resend.com/emails/${id}`, { headers: auth })
+      if (detail.ok) {
+        const body = (await detail.json()) as { message_id?: string }
+        if (body.message_id) return body.message_id
+      }
+    } catch (e) {
+      console.log('Resend message_id readback failed (using our own): ' + e)
+    }
+    return headers['Message-ID'] ?? null
   } catch (e) {
     console.log('Resend alert error: ' + e)
+    return null
+  }
+}
+
+// The once-per-tick flush behind callbacks.onCycleEnd.
+async function flushAlerts(env: AlertEnv, timeNow: number): Promise<void> {
+  const downs = pendingDown
+  const ups = pendingUp
+  pendingDown = []
+  pendingUp = []
+  if (downs.length === 0 && ups.length === 0) return
+
+  const thread = await getAlertThread(env)
+  const alerted = new Map((thread?.alerted ?? []).map((m) => [m.id, m.name]))
+
+  // Only report recoveries a DOWN email actually named — sub-grace blips stay
+  // silent. Without thread state (e.g. first deploy of this scheme) fall back
+  // to the old downtime-length test.
+  const recovered = ups.filter((u) =>
+    thread ? alerted.has(u.id) : u.downSec >= ALERT_GRACE_SEC
+  )
+  if (downs.length === 0 && recovered.length === 0) return
+
+  const stillAlerted = new Map(alerted)
+  for (const d of downs) stillAlerted.set(d.id, d.name)
+  for (const u of recovered) stillAlerted.delete(u.id)
+
+  const mins = (sec: number) => Math.max(1, Math.round(sec / 60))
+  const lines: string[] = []
+  if (downs.length > 0) {
+    lines.push(`DOWN (${downs.length}):`)
+    for (const d of downs)
+      lines.push(`- ${d.name} (${d.target}) — down ~${mins(d.downSec)} min. Issue: ${d.reason || 'unspecified'}`)
+    lines.push('')
+  }
+  if (recovered.length > 0) {
+    lines.push(`RECOVERED (${recovered.length}):`)
+    for (const u of recovered) lines.push(`- ${u.name} — back up after ~${mins(u.downSec)} min`)
+    lines.push('')
+  }
+  if (stillAlerted.size === 0) {
+    lines.push('All clear — every alerted service is back up.')
+  } else {
+    lines.push(`Still down: ${Array.from(stillAlerted.values()).join(', ')}`)
+  }
+  lines.push('')
+  lines.push(`Status page: ${STATUS_PAGE}`)
+
+  const msgId = `<phm-status-${timeNow}-${Math.random().toString(36).slice(2, 10)}@${ALERT_MSGID_DOMAIN}>`
+  const headers: Record<string, string> = { 'Message-ID': msgId }
+  let subject: string
+  if (thread) {
+    subject = `Re: ${thread.subject}`
+    headers['In-Reply-To'] = thread.lastId
+    headers['References'] = thread.refs.join(' ')
+  } else if (downs.length === 1) {
+    subject = `🔴 lishuyu.app: ${downs[0].name} is DOWN`
+  } else if (downs.length > 1) {
+    subject = `🔴 lishuyu.app: ${downs.length} services DOWN`
+  } else {
+    // recoveries only, with no stored thread to reply to
+    subject = `✅ lishuyu.app: ${
+      recovered.length === 1 ? `${recovered[0].name} recovered` : `${recovered.length} services recovered`
+    }`
+  }
+
+  const sentId = (await sendAlertEmail(env, subject, lines.join('\n'), headers)) ?? msgId
+
+  // Update thread state even if the send failed — the alerted set must track
+  // which monitors are known-down or later recoveries would be misfiltered.
+  if (stillAlerted.size === 0) {
+    await putAlertThread(env, null)
+  } else {
+    const allRefs = [...(thread?.refs ?? []), sentId]
+    await putAlertThread(env, {
+      subject: thread?.subject ?? subject,
+      // References must keep the thread root; cap the middle so the header
+      // can't grow unbounded during a long flapping incident.
+      refs: allRefs.length > 9 ? [allRefs[0], ...allRefs.slice(-8)] : allRefs,
+      lastId: sentId,
+      alerted: Array.from(stillAlerted, ([id, name]) => ({ id, name })),
+    })
   }
 }
 
@@ -198,36 +345,30 @@ const workerConfig: WorkerConfig = {
     },
   ],
   callbacks: {
-    // DOWN: onIncident fires every cron tick while a monitor is down. Email
-    // once, when the outage first crosses the grace window (cron interval 60s).
-    onIncident: async (env, monitor, timeIncidentStart, timeNow, reason) => {
+    // DOWN: onIncident fires every cron tick while a monitor is down. Buffer
+    // once, when the outage first crosses the grace window (cron interval 60s);
+    // onCycleEnd emails the batch.
+    onIncident: (env, monitor, timeIncidentStart, timeNow, reason) => {
       const downSec = timeNow - timeIncidentStart
       if (downSec >= ALERT_GRACE_SEC && downSec < ALERT_GRACE_SEC + 60) {
-        const mins = Math.max(1, Math.round(downSec / 60))
-        await sendAlertEmail(
-          env,
-          `🔴 ${monitor.name} is DOWN`,
-          `${monitor.name} (${monitor.target}) has been unreachable for ~${mins} min.\n` +
-            `Issue: ${reason || 'unspecified'}\n\n` +
-            `Status page: https://status.lishuyu.app/`
-        )
+        pendingDown.push({
+          id: monitor.id,
+          name: monitor.name,
+          target: String(monitor.target),
+          reason,
+          downSec,
+        })
       }
     },
-    // UP: onStatusChange fires on every transition. Only email recovery for an
-    // outage long enough that a DOWN alert went out (so sub-grace blips stay silent).
-    onStatusChange: async (env, monitor, isUp, timeIncidentStart, timeNow, _reason) => {
+    // UP: onStatusChange fires on every transition. Buffer every recovery;
+    // flushAlerts drops the ones no DOWN email ever named (sub-grace blips).
+    onStatusChange: (env, monitor, isUp, timeIncidentStart, timeNow, _reason) => {
       if (!isUp) return
-      const downSec = timeNow - timeIncidentStart
-      if (downSec >= ALERT_GRACE_SEC) {
-        const mins = Math.max(1, Math.round(downSec / 60))
-        await sendAlertEmail(
-          env,
-          `✅ ${monitor.name} recovered`,
-          `${monitor.name} is back up after ~${mins} min of downtime.\n\n` +
-            `Status page: https://status.lishuyu.app/`
-        )
-      }
+      pendingUp.push({ id: monitor.id, name: monitor.name, downSec: timeNow - timeIncidentStart })
     },
+    // Once per cron tick, after all monitors: send at most one summary email,
+    // threaded onto the open incident's root mail (see comment block up top).
+    onCycleEnd: (env, timeNow) => flushAlerts(env as AlertEnv, timeNow),
   },
 }
 

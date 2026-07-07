@@ -94,6 +94,11 @@ export type Callbacks<TEnv = Env> = {
     timeNow: number,
     reason: string
   ) => Promise<any> | any
+  // Called once per cron tick, after every monitor's result has been processed
+  // (and after all onIncident/onStatusChange calls for that tick). Lets the
+  // config aggregate per-monitor events into a single action — e.g. one alert
+  // email per tick instead of one per service (see uptime.config.ts).
+  onCycleEnd?: (env: TEnv, timeNow: number) => Promise<any> | any
 }
 
 export type IncidentRecord = {
