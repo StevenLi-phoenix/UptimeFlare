@@ -69,6 +69,79 @@ async function putAlertThread(env: AlertEnv, thread: AlertThread | null): Promis
     .run()
 }
 
+// --- HTML rendering (same zinc design language as the platform's emailservice
+// templates; duplicated here on purpose — this worker is deliberately
+// independent of the droplet, see the header comment). Email-client-safe:
+// single table, inline styles, no images/SVG. The plain-text body stays as
+// the multipart/alternative fallback.
+const MAIL_FONT =
+  "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif"
+
+const escHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+function alertRow(dotColor: string, main: string, detail: string): string {
+  return (
+    `<div style="padding:8px 0;border-bottom:1px solid #f4f4f5;">` +
+    `<span style="display:inline-block;width:8px;height:8px;border-radius:4px;background:${dotColor};margin-right:10px;"></span>` +
+    `<span style="font:600 14px/1.5 ${MAIL_FONT};color:#18181b;">${escHtml(main)}</span>` +
+    `<div style="font:400 12px/1.6 ${MAIL_FONT};color:#71717a;margin:2px 0 0 18px;">${escHtml(detail)}</div>` +
+    `</div>`
+  )
+}
+
+function alertHtml(opts: {
+  title: string
+  downs: typeof pendingDown
+  recovered: { name: string; downSec: number }[]
+  stillDown: string[]
+}): string {
+  const mins = (sec: number) => Math.max(1, Math.round(sec / 60))
+  let sections = ''
+  if (opts.downs.length > 0) {
+    sections += `<div style="font:600 12px/1 ${MAIL_FONT};color:#dc2626;letter-spacing:.06em;margin:16px 0 4px;">DOWN (${opts.downs.length})</div>`
+    for (const d of opts.downs)
+      sections += alertRow(
+        '#dc2626',
+        `${d.name} — down ~${mins(d.downSec)} min`,
+        `${d.target} · ${d.reason || 'unspecified'}`
+      )
+  }
+  if (opts.recovered.length > 0) {
+    sections += `<div style="font:600 12px/1 ${MAIL_FONT};color:#16a34a;letter-spacing:.06em;margin:16px 0 4px;">RECOVERED (${opts.recovered.length})</div>`
+    for (const u of opts.recovered)
+      sections += alertRow('#16a34a', u.name, `back up after ~${mins(u.downSec)} min`)
+  }
+  const tail =
+    opts.stillDown.length === 0
+      ? `<div style="font:400 14px/1.6 ${MAIL_FONT};color:#16a34a;margin:16px 0 0;">All clear — every alerted service is back up.</div>`
+      : `<div style="font:400 13px/1.6 ${MAIL_FONT};color:#71717a;margin:16px 0 0;">Still down: ${escHtml(opts.stillDown.join(', '))}</div>`
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(opts.title)}</title></head>
+<body style="margin:0;padding:0;background:#f4f4f5;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border:1px solid #e4e4e7;border-radius:8px;text-align:left;">
+  <tr><td style="padding:18px 28px;border-bottom:1px solid #f4f4f5;">
+    <span style="font:600 14px ${MAIL_FONT};color:#18181b;letter-spacing:.02em;">lishuyu.app</span>
+    <span style="float:right;font:400 12px/17px ${MAIL_FONT};color:#a1a1aa;">status monitor</span>
+  </td></tr>
+  <tr><td style="padding:20px 28px 28px;">
+    <div style="font:600 16px/1.4 ${MAIL_FONT};color:#18181b;">${escHtml(opts.title)}</div>
+    ${sections}
+    ${tail}
+  </td></tr>
+  <tr><td style="padding:14px 28px;border-top:1px solid #f4f4f5;font:400 12px/1.6 ${MAIL_FONT};color:#a1a1aa;">
+    Sent by the edge status monitor · <a href="${STATUS_PAGE}" style="color:#2563eb;text-decoration:none;">status.lishuyu.app</a>
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`
+}
+
 // Sends one alert email; returns the sent mail's Message-ID for threading, or
 // null if the send failed. Resend's docs don't say whether a custom Message-ID
 // header is passed through or rewritten, so after sending we read back the
@@ -78,6 +151,7 @@ async function sendAlertEmail(
   env: AlertEnv,
   subject: string,
   text: string,
+  html: string,
   headers: Record<string, string>
 ): Promise<string | null> {
   if (!env.RESEND_API_KEY) {
@@ -92,7 +166,7 @@ async function sendAlertEmail(
     const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: auth,
-      body: JSON.stringify({ from: ALERT_FROM, to: ALERT_TO, subject, text, headers }),
+      body: JSON.stringify({ from: ALERT_FROM, to: ALERT_TO, subject, text, html, headers }),
     })
     if (!resp.ok) {
       console.log(`Resend alert failed: ${resp.status} ${await resp.text()}`)
@@ -178,7 +252,15 @@ async function flushAlerts(env: AlertEnv, timeNow: number): Promise<void> {
     }`
   }
 
-  const sentId = (await sendAlertEmail(env, subject, lines.join('\n'), headers)) ?? msgId
+  const html = alertHtml({
+    // strip the reply prefix for the card title — the threading lives in the
+    // subject/headers, the card should just state the incident
+    title: thread ? thread.subject.replace(/^🔴 |^✅ /, '') : subject.replace(/^🔴 |^✅ /, ''),
+    downs,
+    recovered,
+    stillDown: Array.from(stillAlerted.values()),
+  })
+  const sentId = (await sendAlertEmail(env, subject, lines.join('\n'), html, headers)) ?? msgId
 
   // Update thread state even if the send failed — the alerted set must track
   // which monitors are known-down or later recoveries would be misfiltered.
