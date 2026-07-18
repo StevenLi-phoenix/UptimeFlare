@@ -357,6 +357,38 @@ const workerConfig: WorkerConfig = {
       tooltip: 'Platform message bus',
     },
     {
+      id: 'notificationservice',
+      ...NYC_ORIGIN_CHECK,
+      name: 'Notify',
+      method: 'GET',
+      target: 'https://api.lishuyu.app/notify/health',
+      tooltip: 'Push layer (bark / email / e-ink by urgency)',
+    },
+    {
+      id: 'emailservice',
+      ...NYC_ORIGIN_CHECK,
+      name: 'Email',
+      method: 'GET',
+      target: 'https://api.lishuyu.app/email/health',
+      tooltip: 'Outbound transactional email relay (Resend)',
+    },
+    {
+      id: 'commentservice',
+      ...NYC_ORIGIN_CHECK,
+      name: 'Comments',
+      method: 'GET',
+      target: 'https://api.lishuyu.app/comments/health',
+      tooltip: 'Blog comments (LLM-moderated)',
+    },
+    {
+      id: 'wechatservice',
+      ...NYC_ORIGIN_CHECK,
+      name: 'WeChat',
+      method: 'GET',
+      target: 'https://api.lishuyu.app/wechat/health',
+      tooltip: 'WeChat Official Account publishing relay',
+    },
+    {
       id: 'kvservice',
       ...NYC_ORIGIN_CHECK,
       name: 'KV',
@@ -400,6 +432,24 @@ const workerConfig: WorkerConfig = {
       // registry endpoint + the short-segment convention of the other services).
       // The old /timeservice/health 404'd, showing the service as down.
       target: 'https://api.lishuyu.app/time/health',
+    },
+    {
+      id: 'pages',
+      ...NYC_ORIGIN_CHECK,
+      name: 'Pages',
+      method: 'GET',
+      target: 'https://page.lishuyu.app/health',
+      statusPageLink: 'https://page.lishuyu.app/',
+      tooltip: 'Single static HTML page hosting (sandbox-CSP isolated)',
+    },
+    {
+      id: 'mailbox',
+      ...NYC_ORIGIN_CHECK,
+      name: 'Mailbox',
+      method: 'GET',
+      target: 'https://mail.lishuyu.app/health',
+      statusPageLink: 'https://mail.lishuyu.app/',
+      tooltip: 'Catch-all inbox for *@lishuyu.app',
     },
     {
       id: 'locationservice',
