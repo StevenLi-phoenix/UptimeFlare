@@ -438,8 +438,10 @@ const workerConfig: WorkerConfig = {
       ...NYC_ORIGIN_CHECK,
       name: 'Pages',
       method: 'GET',
-      target: 'https://page.lishuyu.app/health',
-      statusPageLink: 'https://page.lishuyu.app/',
+      // Pages moved to pages.shuyuli.com on 2026-08-30 (page.lishuyu.app DNS
+      // deleted permanently) — probing the old domain reported false DOWN.
+      target: 'https://pages.shuyuli.com/health',
+      statusPageLink: 'https://pages.shuyuli.com/',
       tooltip: 'Single static HTML page hosting (sandbox-CSP isolated)',
     },
     {
