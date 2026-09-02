@@ -4,12 +4,9 @@ compatibility_date = "2025-04-02"
 compatibility_flags = [ "nodejs_compat" ]
 
 # Keep in sync with deploy.tf (terraform manages the same worker in CI).
+# Observability intentionally off — 1-minute cron makes log volume not worth it.
 [observability]
-enabled = true
-
-[observability.logs]
-enabled = true
-invocation_logs = true
+enabled = false
 
 [triggers]
 crons = [ "* * * * *" ] # reduce write counts by increasing `kvWriteCooldownMinutes`

@@ -49,12 +49,10 @@ resource "cloudflare_workers_script" "uptimeflare_worker" {
   compatibility_date  = "2025-04-02"
   compatibility_flags = ["nodejs_compat"]
 
+  # Observability intentionally off — 1-minute cron makes log volume not worth it.
+  # Keep in sync with wrangler.toml (Workers Builds deploys the same worker).
   observability = {
-    enabled = true
-    logs = {
-      enabled         = true
-      invocation_logs = true
-    }
+    enabled = false
   }
 
   migrations = var.enable_do_migration ? {
