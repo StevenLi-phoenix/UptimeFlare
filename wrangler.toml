@@ -1,8 +1,30 @@
 name = 'uptimeflare_worker' # sync with cloudflare worker name
+main = "worker/src/index.ts"
 compatibility_date = "2025-04-02"
 compatibility_flags = [ "nodejs_compat" ]
+
+# Keep in sync with deploy.tf (terraform manages the same worker in CI).
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[triggers]
+crons = [ "* * * * *" ] # reduce write counts by increasing `kvWriteCooldownMinutes`
+
+[[durable_objects.bindings]]
+name = "REMOTE_CHECKER_DO"
+class_name = "RemoteChecker"
+
+# Remote already has migration tag v1 (applied via deploy.tf); declaring it here
+# makes a fresh `wrangler deploy` work and is a no-op on the existing worker.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = [ "RemoteChecker" ]
 
 [[d1_databases]]
 binding = "UPTIMEFLARE_D1"
 database_name = "uptimeflare_d1"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "776c0069-e966-4782-b408-24e4abdd133e"
