@@ -1,4 +1,4 @@
-name = "uptimeflare"
+name = 'uptimeflare_worker' # sync with cloudflare worker name
 compatibility_date = "2025-04-02"
 compatibility_flags = [ "nodejs_compat" ]
 
