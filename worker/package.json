@@ -5,7 +5,8 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev --test-scheduled --persist-to ../.wrangler/state",
-    "start": "wrangler dev"
+    "start": "wrangler dev",
+    "test": "node --test test/*.test.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250410.0",

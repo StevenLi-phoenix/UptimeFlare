@@ -279,12 +279,38 @@ async function flushAlerts(env: AlertEnv, timeNow: number): Promise<void> {
   }
 }
 
+// --- Controller self-report (2026-09-22) -------------------------------------
+// The droplet now runs one fabric Host process for every service, so probing each
+// service through its own DO RPC re-checked the same process 18 times per tick and
+// pushed the cron past the free-plan 10ms CPU limit (11-17ms measured). Now:
+//  * ONE enam DO probe hits the controller's GET /health/services (health only,
+//    no latency) and is the only row that charts network latency.
+//  * api.lishuyu.app path services are derived from that report (no request).
+//  * Every other droplet hostname keeps its own direct probe from the cron colo:
+//    each has its own DNS record, Cloudflare rules, Caddy site/listener and origin
+//    cert that the self-report cannot see. Up/down only — cron-colo latency is noise.
+const CONTROLLER_ID = 'controller'
+const REPORTED = (service?: string) => ({
+  reportedBy: { monitor: CONTROLLER_ID, service },
+  hideLatencyChart: true,
+})
+const HOSTNAME_PROBE = { hideLatencyChart: true }
+const API_PATH_SERVICES = [
+  'deployer', 'messageservice', 'notificationservice', 'emailservice', 'commentservice', 'wechatservice',
+  'kvservice', 'logservice', 'oss', 'secretsservice', 'files', 'timeservice',
+]
+const HOSTNAME_MONITORS = ['registry', 'auth', 'displayservice', 'pages', 'mailbox', 'locationservice']
+
 const pageConfig: PageConfig = {
   title: 'lishuyu.app status',
   links: [
     { link: 'https://github.com/StevenLi-phoenix', label: 'GitHub' },
     { link: 'https://shuyuli.com/', label: 'Resume', highlight: true },
   ],
+  group: {
+    'Platform (phm droplet)': [CONTROLLER_ID, ...HOSTNAME_MONITORS, ...API_PATH_SERVICES],
+    'Cloudflare Pages': ['blog', 'resume'],
+  },
 }
 
 // --- Check from near the origin (Durable Object in eastern North America) ----
@@ -311,8 +337,17 @@ const workerConfig: WorkerConfig = {
   checkConcurrency: 1,
   monitors: [
     {
-      id: 'registry',
+      id: CONTROLLER_ID,
       ...NYC_ORIGIN_CHECK,
+      name: 'Platform host (phm)',
+      method: 'GET',
+      target: 'https://api.lishuyu.app/health/services',
+      selfReport: true,
+      tooltip: 'fabric Host on the droplet, probed from eastern North America; api services below are its self-report',
+    },
+    {
+      id: 'registry',
+      ...HOSTNAME_PROBE,
       name: 'Registry',
       method: 'GET',
       target: 'https://registry.lishuyu.app/health',
@@ -320,7 +355,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'auth',
-      ...NYC_ORIGIN_CHECK,
+      ...HOSTNAME_PROBE,
       name: 'Auth',
       method: 'GET',
       target: 'https://auth.lishuyu.app/api/users/me',
@@ -330,7 +365,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'deployer',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED(), // retired; /deploy/health is a Caddy compat route to Host /health
       name: 'Deployer',
       method: 'GET',
       // Deployer moved off deploy.lishuyu.app 2026-07-02 — subdomains are
@@ -341,7 +376,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'displayservice',
-      ...NYC_ORIGIN_CHECK,
+      ...HOSTNAME_PROBE,
       name: 'TRMNL Display',
       method: 'GET',
       target: 'https://display.lishuyu.app/health',
@@ -350,7 +385,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'messageservice',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED('messageservice'),
       name: 'Messages',
       method: 'GET',
       target: 'https://api.lishuyu.app/message/health',
@@ -358,7 +393,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'notificationservice',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED('notificationservice'),
       name: 'Notify',
       method: 'GET',
       target: 'https://api.lishuyu.app/notify/health',
@@ -366,7 +401,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'emailservice',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED('emailservice'),
       name: 'Email',
       method: 'GET',
       target: 'https://api.lishuyu.app/email/health',
@@ -374,7 +409,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'commentservice',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED('commentservice'),
       name: 'Comments',
       method: 'GET',
       target: 'https://api.lishuyu.app/comments/health',
@@ -382,7 +417,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'wechatservice',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED('wechatservice'),
       name: 'WeChat',
       method: 'GET',
       target: 'https://api.lishuyu.app/wechat/health',
@@ -390,42 +425,42 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'kvservice',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED('kvservice'),
       name: 'KV',
       method: 'GET',
       target: 'https://api.lishuyu.app/kv/health',
     },
     {
       id: 'logservice',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED('logservice'),
       name: 'Logs',
       method: 'GET',
       target: 'https://api.lishuyu.app/logs/health',
     },
     {
       id: 'oss',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED('oss'),
       name: 'OSS',
       method: 'GET',
       target: 'https://api.lishuyu.app/oss/health',
     },
     {
       id: 'secretsservice',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED('secretsservice'),
       name: 'Secrets',
       method: 'GET',
       target: 'https://api.lishuyu.app/secrets/health',
     },
     {
       id: 'files',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED('files'),
       name: 'Files',
       method: 'GET',
       target: 'https://api.lishuyu.app/files/health',
     },
     {
       id: 'timeservice',
-      ...NYC_ORIGIN_CHECK,
+      ...REPORTED('timeservice'),
       name: 'Time',
       method: 'GET',
       // Gateway path shortened from /timeservice to /time (2026-07-02, matches
@@ -435,7 +470,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'pages',
-      ...NYC_ORIGIN_CHECK,
+      ...HOSTNAME_PROBE,
       name: 'Pages',
       method: 'GET',
       // Pages moved to pages.shuyuli.com on 2026-08-30 (page.lishuyu.app DNS
@@ -446,7 +481,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'mailbox',
-      ...NYC_ORIGIN_CHECK,
+      ...HOSTNAME_PROBE,
       name: 'Mailbox',
       method: 'GET',
       target: 'https://mail.lishuyu.app/health',
@@ -455,7 +490,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'locationservice',
-      ...NYC_ORIGIN_CHECK,
+      ...HOSTNAME_PROBE,
       name: 'Location',
       method: 'GET',
       // moved off the api gateway to its own subdomain (2026-06-11)

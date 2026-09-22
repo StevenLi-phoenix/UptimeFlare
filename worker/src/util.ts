@@ -1,14 +1,6 @@
 import { MonitorTarget, WebhookConfig } from '../../types/config'
 import { maintenances, workerConfig } from '../../uptime.config'
 
-async function getWorkerLocation() {
-  const res = await fetch('https://cloudflare.com/cdn-cgi/trace')
-  const text = await res.text()
-
-  const colo = /^colo=(.*)$/m.exec(text)?.[1]
-  return colo
-}
-
 const fetchTimeout = (
   url: string,
   ms: number,
@@ -192,7 +184,6 @@ const formatAndNotify = async (
 }
 
 export {
-  getWorkerLocation,
   fetchTimeout,
   withTimeout,
   webhookNotify,

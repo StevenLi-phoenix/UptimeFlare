@@ -1,6 +1,7 @@
 import { Env } from '.'
 import { MonitorTarget } from '../../types/config'
 import { withTimeout, fetchTimeout } from './util'
+import { parseSelfReport, type CheckStatus } from './controller'
 
 function isIpAddress(hostname: string): boolean {
   // `URL.hostname` strips brackets for IPv6, so a `:` reliably indicates an IPv6 literal here.
@@ -264,10 +265,8 @@ export async function getStatusWithGlobalPing(
   }
 }
 
-export async function getStatus(
-  monitor: MonitorTarget
-): Promise<{ ping: number; up: boolean; err: string }> {
-  let status = {
+export async function getStatus(monitor: MonitorTarget): Promise<CheckStatus> {
+  let status: CheckStatus = {
     ping: 0,
     up: false,
     err: 'Unknown',
@@ -324,11 +323,16 @@ export async function getStatus(
       console.log(`${monitor.name} responded with ${response.status}`)
       status.ping = Date.now() - startTime
 
-      const err = await httpResponseBasicCheck(
+      let err = await httpResponseBasicCheck(
         monitor,
         response.status,
         response.text.bind(response)
       )
+      if (err === null && monitor.selfReport) {
+        const report = parseSelfReport(await response.json().catch(() => null))
+        if (report === null) err = 'Invalid controller self-report'
+        else status.report = report
+      }
       try {
         await response.body?.cancel()
       } catch (e) {} // Always try to cancel body, see issue #166
@@ -369,7 +373,9 @@ export async function doMonitor(monitor: MonitorTarget, defaultLocation: string,
         const doStub = env.REMOTE_CHECKER_DO.get(doId, {
           locationHint: doLoc as DurableObjectLocationHint,
         })
-        resp = await doStub.getLocationAndStatus(monitor)
+        // The locationHint pins the prober; label it by the hint instead of paying a
+        // cloudflare.com/cdn-cgi/trace subrequest per check just to learn the colo.
+        resp = { location: doLoc, status: await doStub.check(monitor) }
         // Don't force-evict the DO. The old `doStub.kill()` trick threw inside
         // blockConcurrencyWhile to terminate the instance, but that throw always
         // surfaces as an uncaught error in the DO invocation AND a disconnect

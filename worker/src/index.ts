@@ -2,7 +2,8 @@ import { DurableObject } from 'cloudflare:workers'
 import { MonitorTarget } from '../../types/config'
 import { workerConfig } from '../../uptime.config'
 import { doMonitor, getStatus } from './monitor'
-import { formatAndNotify, getWorkerLocation } from './util'
+import { formatAndNotify } from './util'
+import { deriveReportedStatus, type CheckStatus } from './controller'
 import { CompactedMonitorStateWrapper, getFromStore, setToStore } from './store'
 import pLimit from 'p-limit'
 
@@ -17,8 +18,10 @@ export interface Env {
 
 const Worker = {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    const workerLocation = (await getWorkerLocation()) || 'ERROR'
-    console.log(`Running scheduled event on ${workerLocation}...`)
+    // Cron triggers can't be pinned (placement only applies to fetch handlers), so
+    // the colo is arbitrary; don't spend a trace subrequest to learn it every tick.
+    const workerLocation = 'edge'
+    console.log('Running scheduled event...')
 
     // Create a wrapped MonitorState from stored compacted state
     const state = new CompactedMonitorStateWrapper(await getFromStore(env, 'state'))
@@ -35,15 +38,26 @@ const Worker = {
     // latency balloons (~90ms solo -> ~450-770ms at 5-8 concurrent). Lower
     // concurrency staggers the checks so the origin handles ~1-2 handshakes at a
     // time. Configurable via workerConfig.checkConcurrency (default 2).
-    type CheckResult = { id: string; location: string; status: { ping: number; up: boolean; err: string } }
+    type CheckResult = { id: string; location: string; status: CheckStatus }
     let checkQueue: Promise<CheckResult>[] = []
     let checkResult: Record<string, CheckResult> = {};
     const limit = pLimit(workerConfig.checkConcurrency ?? 2);
     for (const monitor of workerConfig.monitors) {
+      if (monitor.reportedBy) continue // derived below, no request of its own
       checkQueue.push(limit(() => doMonitor(monitor, workerLocation, env)))
     }
     for (const result of await Promise.all(checkQueue)) {
       checkResult[result.id] = result
+    }
+    for (const monitor of workerConfig.monitors) {
+      if (!monitor.reportedBy) continue
+      const controller = checkResult[monitor.reportedBy.monitor] ?? {
+        location: workerLocation,
+        status: { ping: 0, up: false, err: `monitor ${monitor.reportedBy.monitor} not configured` },
+      }
+      const status = deriveReportedStatus(monitor.reportedBy.service, controller.status)
+      console.log(`[${monitor.id}] Derived from ${monitor.reportedBy.monitor}: up=${status.up}, err=${status.err}`)
+      checkResult[monitor.id] = { id: monitor.id, location: controller.location, status }
     }
 
     // Update each monitor's state based on check results
@@ -277,15 +291,8 @@ export class RemoteChecker extends DurableObject {
     super(ctx, env)
   }
 
-  async getLocationAndStatus(
-    monitor: MonitorTarget
-  ): Promise<{ location: string; status: { ping: number; up: boolean; err: string } }> {
-    const colo = (await getWorkerLocation()) as string
-    console.log(`Running remote checker (DurableObject) at ${colo}...`)
-    const status = await getStatus(monitor)
-    return {
-      location: colo,
-      status: status,
-    }
+  async check(monitor: MonitorTarget): Promise<CheckStatus> {
+    console.log(`Running remote checker (DurableObject) for ${monitor.id}...`)
+    return getStatus(monitor)
   }
 }
