@@ -279,24 +279,24 @@ async function flushAlerts(env: AlertEnv, timeNow: number): Promise<void> {
   }
 }
 
-// --- Controller self-report (2026-09-22) -------------------------------------
-// The droplet now runs one fabric Host process for every service, so probing each
-// service through its own DO RPC re-checked the same process 18 times per tick and
-// pushed the cron past the free-plan 10ms CPU limit (11-17ms measured). Now:
-//  * ONE enam DO probe hits the controller's GET /health/services (health only,
-//    no latency) and is the only row that charts network latency.
-//  * api.lishuyu.app path services are derived from that report (no request).
+// --- Core report (2026-09-26) ------------------------------------------------
+// The droplet runs every api.lishuyu.app service as a plugin of one process ("core"), so
+// probing each service through its own DO RPC re-checked the same process per service and
+// pushed the cron past the free-plan 10ms CPU limit. Now:
+//  * ONE enam DO probe hits core's GET /health ({ ok, plugins: { id: phase } }, 503 when a
+//    plugin is not serving) and is the only row that charts network latency.
+//  * api.lishuyu.app path services are derived from that report by plugin id (no request).
 //  * Every other droplet hostname keeps its own direct probe from the cron colo:
 //    each has its own DNS record, Cloudflare rules, Caddy site/listener and origin
-//    cert that the self-report cannot see. Up/down only — cron-colo latency is noise.
+//    cert that the report cannot see. Up/down only — cron-colo latency is noise.
 const CONTROLLER_ID = 'controller'
-const REPORTED = (service?: string) => ({
-  reportedBy: { monitor: CONTROLLER_ID, service },
+const REPORTED = (plugin?: string) => ({
+  reportedBy: { monitor: CONTROLLER_ID, plugin },
   hideLatencyChart: true,
 })
 const HOSTNAME_PROBE = { hideLatencyChart: true }
 const API_PATH_SERVICES = [
-  'deployer', 'messageservice', 'notificationservice', 'emailservice', 'commentservice', 'wechatservice',
+  'messageservice', 'notificationservice', 'emailservice', 'commentservice', 'wechatservice',
   'kvservice', 'logservice', 'oss', 'secretsservice', 'files', 'timeservice',
 ]
 const HOSTNAME_MONITORS = ['registry', 'auth', 'displayservice', 'pages', 'mailbox', 'locationservice']
@@ -341,9 +341,11 @@ const workerConfig: WorkerConfig = {
       ...NYC_ORIGIN_CHECK,
       name: 'Platform host (phm)',
       method: 'GET',
-      target: 'https://api.lishuyu.app/health/services',
-      selfReport: true,
-      tooltip: 'fabric Host on the droplet, probed from eastern North America; api services below are its self-report',
+      target: 'https://api.lishuyu.app/health',
+      // 503 means core answered but a plugin is not serving: core itself is up, rows below say which.
+      expectedCodes: [200, 503],
+      coreReport: true,
+      tooltip: 'core on the droplet, probed from eastern North America; api services below come from its plugin report',
     },
     {
       id: 'registry',
@@ -362,17 +364,6 @@ const workerConfig: WorkerConfig = {
       // No public /health route; an unauthenticated 401 proves liveness.
       expectedCodes: [401],
       tooltip: 'User JWT / PAT / OAuth (trust root)',
-    },
-    {
-      id: 'deployer',
-      ...REPORTED(), // retired; /deploy/health is a Caddy compat route to Host /health
-      name: 'Deployer',
-      method: 'GET',
-      // Deployer moved off deploy.lishuyu.app 2026-07-02 — subdomains are
-      // reserved for services with a real frontend; API-only services live
-      // behind the api.lishuyu.app path gateway.
-      target: 'https://api.lishuyu.app/deploy/health',
-      tooltip: 'Webhook deploy pipeline',
     },
     {
       id: 'displayservice',

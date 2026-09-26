@@ -1,35 +1,37 @@
-// Controller self-report: the droplet's fabric Host serves every api.lishuyu.app
-// service from one process, so one enam probe of GET /health/services replaces a
-// probe per service. The Host reports health only; the latency shown for derived
-// rows is the network latency of that single controller probe.
+// Core report: the droplet runs every api.lishuyu.app service as a plugin of one process
+// ("core"), so one enam probe of GET https://api.lishuyu.app/health replaces a probe per
+// service. /health answers { ok, plugins: { <pluginId>: <phase> } } with 200 when every
+// enabled plugin is serving and 503 when one is not; it reports health only, so the
+// latency shown for derived rows is the network latency of that single probe.
 
-export type ServiceHealth = { ok: boolean; code?: string }
-export type SelfReport = Record<string, ServiceHealth>
-export type CheckStatus = { ping: number; up: boolean; err: string; report?: SelfReport }
+export type PluginHealth = { ok: boolean; code?: string }
+export type CoreReport = Record<string, PluginHealth>
+export type CheckStatus = { ping: number; up: boolean; err: string; report?: CoreReport }
 
-export function parseSelfReport(body: unknown): SelfReport | null {
+/** A plugin serves in these phases (probation = newly deployed, still answering). */
+const SERVING = new Set(['active', 'probation'])
+
+export function parseCoreReport(body: unknown): CoreReport | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null
-  const services = (body as { services?: unknown }).services
-  if (!services || typeof services !== 'object' || Array.isArray(services)) return null
-  const report: SelfReport = {}
-  for (const [name, value] of Object.entries(services as Record<string, unknown>)) {
-    if (!value || typeof value !== 'object' || typeof (value as ServiceHealth).ok !== 'boolean') continue
-    const { ok, code } = value as ServiceHealth
-    report[name] = typeof code === 'string' ? { ok, code } : { ok }
+  const plugins = (body as { plugins?: unknown }).plugins
+  if (!plugins || typeof plugins !== 'object' || Array.isArray(plugins)) return null
+  const report: CoreReport = {}
+  for (const [pluginId, phase] of Object.entries(plugins as Record<string, unknown>)) {
+    if (typeof phase !== 'string') continue
+    report[pluginId] = SERVING.has(phase) ? { ok: true } : { ok: false, code: phase }
   }
   return report
 }
 
-// `service` undefined = a row that only tracks controller reachability (e.g. a
-// compatibility route with no backing service).
+// `plugin` undefined = a row that only tracks core reachability.
 export function deriveReportedStatus(
-  service: string | undefined,
-  controller: CheckStatus
+  plugin: string | undefined,
+  core: CheckStatus
 ): { ping: number; up: boolean; err: string } {
-  if (!controller.up) return { ping: 0, up: false, err: `Controller unreachable: ${controller.err}` }
-  if (service === undefined) return { ping: controller.ping, up: true, err: '' }
-  const health = controller.report?.[service]
-  if (!health) return { ping: controller.ping, up: false, err: `Controller did not report ${service}` }
-  if (!health.ok) return { ping: controller.ping, up: false, err: `Controller reports ${service}: ${health.code ?? 'unhealthy'}` }
-  return { ping: controller.ping, up: true, err: '' }
+  if (!core.up) return { ping: 0, up: false, err: `Core unreachable: ${core.err}` }
+  if (plugin === undefined) return { ping: core.ping, up: true, err: '' }
+  const health = core.report?.[plugin]
+  if (!health) return { ping: core.ping, up: false, err: `Core did not report ${plugin}` }
+  if (!health.ok) return { ping: core.ping, up: false, err: `Core reports ${plugin}: ${health.code ?? 'unhealthy'}` }
+  return { ping: core.ping, up: true, err: '' }
 }

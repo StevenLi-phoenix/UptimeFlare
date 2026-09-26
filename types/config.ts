@@ -45,12 +45,12 @@ export type MonitorTarget = {
   responseForbiddenKeyword?: string
   checkProxy?: string
   checkProxyFallback?: boolean
-  // Parse the response as the fabric Host self-report (GET /health/services) so
-  // `reportedBy` rows can derive their health from this single probe.
-  selfReport?: boolean
-  // Derived row: no request of its own. Health comes from `monitor`'s self-report
-  // entry `service` (omit `service` to follow controller reachability only).
-  reportedBy?: { monitor: string; service?: string }
+  // Parse the response as core's plugin report (GET /health: { ok, plugins: { id: phase } })
+  // so `reportedBy` rows can derive their health from this single probe.
+  coreReport?: boolean
+  // Derived row: no request of its own. Health comes from `monitor`'s core report entry
+  // `plugin` (omit `plugin` to follow core reachability only).
+  reportedBy?: { monitor: string; plugin?: string }
 }
 
 export type WorkerConfig<TEnv = Env> = {

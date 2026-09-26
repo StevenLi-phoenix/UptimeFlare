@@ -1,7 +1,7 @@
 import { Env } from '.'
 import { MonitorTarget } from '../../types/config'
 import { withTimeout, fetchTimeout } from './util'
-import { parseSelfReport, type CheckStatus } from './controller'
+import { parseCoreReport, type CheckStatus } from './controller'
 
 function isIpAddress(hostname: string): boolean {
   // `URL.hostname` strips brackets for IPv6, so a `:` reliably indicates an IPv6 literal here.
@@ -328,9 +328,9 @@ export async function getStatus(monitor: MonitorTarget): Promise<CheckStatus> {
         response.status,
         response.text.bind(response)
       )
-      if (err === null && monitor.selfReport) {
-        const report = parseSelfReport(await response.json().catch(() => null))
-        if (report === null) err = 'Invalid controller self-report'
+      if (err === null && monitor.coreReport) {
+        const report = parseCoreReport(await response.json().catch(() => null))
+        if (report === null) err = 'Invalid core report'
         else status.report = report
       }
       try {

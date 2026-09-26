@@ -55,7 +55,7 @@ const Worker = {
         location: workerLocation,
         status: { ping: 0, up: false, err: `monitor ${monitor.reportedBy.monitor} not configured` },
       }
-      const status = deriveReportedStatus(monitor.reportedBy.service, controller.status)
+      const status = deriveReportedStatus(monitor.reportedBy.plugin, controller.status)
       console.log(`[${monitor.id}] Derived from ${monitor.reportedBy.monitor}: up=${status.up}, err=${status.err}`)
       checkResult[monitor.id] = { id: monitor.id, location: controller.location, status }
     }
