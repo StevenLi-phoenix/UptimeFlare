@@ -4,9 +4,13 @@ All notable changes to this fork are documented here. Format: [Keep a Changelog]
 
 ## [Unreleased]
 
+### Changed
+
+- Merged upstream lyc8503/UptimeFlare up to `8035521`: the remote-checker Durable Object name includes its location hint (#223), footer spelling (#225).
+
 ### Added
 
-- Weekly "Upstream PR" workflow: merges lyc8503/UptimeFlare `main` into an `upstream/<sha>` branch and opens a PR (or reports a conflict), instead of the upstream `sync.yaml` reset that would drop this fork's changes. The PR body lists each upstream commit, the diffstat, the files this fork also changed, and the full diff.
+- Weekly "Upstream PR" workflow: merges lyc8503/UptimeFlare `main` into an `upstream/<sha>` branch and opens a PR (or reports a conflict), instead of the upstream `sync.yaml` reset that would drop this fork's changes. The PR body lists each upstream commit, the diffstat, the files this fork also changed, and the full diff. It merges and deploys on its own when the merge is clean, upstream leaves this fork's setup files alone (`uptime.config.ts`, wrangler configs, `deploy.tf`, `deploy/`, `.github/`) and the worker tests, worker build and Pages build pass; otherwise the PR stays open with the reason.
 
 ## [0.3.0] - 2026-11-01
 
