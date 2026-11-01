@@ -2,7 +2,17 @@
 
 All notable changes to this fork are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] - 2026-09-26
+## [Unreleased] - 2026-11-01
+
+### Changed
+
+- Services cut over to Cloudflare Workers (`timeservice`, `commentservice`) are probed on their public URL in a new "Cloudflare Workers" group; core's report only sees the idle phm copy kept for rollback.
+
+### Removed
+
+- Logs and Secrets rows: logservice and secretsservice are retired (api repo docs/edge.md §2.1).
+
+## 2026-09-26
 
 ### Added
 

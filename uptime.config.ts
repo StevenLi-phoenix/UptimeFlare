@@ -295,9 +295,16 @@ const REPORTED = (plugin?: string) => ({
   hideLatencyChart: true,
 })
 const HOSTNAME_PROBE = { hideLatencyChart: true }
+// --- Cloudflare Workers (2026-11-01) -----------------------------------------
+// api.lishuyu.app prefixes cut over to Workers (api repo docs/edge.md §10) are answered by
+// a Worker route, not by core; core's report still lists the idle phm copy kept as the
+// rollback point, so these are probed on the public URL instead. Moving a service here
+// is part of its cutover: drop REPORTED() from its monitor and spread EDGE_PROBE.
+const EDGE_PROBE = { hideLatencyChart: true }
+const EDGE_SERVICES = ['timeservice', 'commentservice']
 const API_PATH_SERVICES = [
-  'messageservice', 'notificationservice', 'emailservice', 'commentservice', 'wechatservice',
-  'kvservice', 'logservice', 'oss', 'secretsservice', 'files', 'timeservice',
+  'messageservice', 'notificationservice', 'emailservice', 'wechatservice',
+  'kvservice', 'oss', 'files',
 ]
 const HOSTNAME_MONITORS = ['registry', 'auth', 'displayservice', 'pages', 'mailbox', 'locationservice']
 
@@ -309,6 +316,7 @@ const pageConfig: PageConfig = {
   ],
   group: {
     'Platform (phm droplet)': [CONTROLLER_ID, ...HOSTNAME_MONITORS, ...API_PATH_SERVICES],
+    'Cloudflare Workers': EDGE_SERVICES,
     'Cloudflare Pages': ['blog', 'resume'],
   },
 }
@@ -400,7 +408,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'commentservice',
-      ...REPORTED('commentservice'),
+      ...EDGE_PROBE,
       name: 'Comments',
       method: 'GET',
       target: 'https://api.lishuyu.app/comments/health',
@@ -422,25 +430,11 @@ const workerConfig: WorkerConfig = {
       target: 'https://api.lishuyu.app/kv/health',
     },
     {
-      id: 'logservice',
-      ...REPORTED('logservice'),
-      name: 'Logs',
-      method: 'GET',
-      target: 'https://api.lishuyu.app/logs/health',
-    },
-    {
       id: 'oss',
       ...REPORTED('oss'),
       name: 'OSS',
       method: 'GET',
       target: 'https://api.lishuyu.app/oss/health',
-    },
-    {
-      id: 'secretsservice',
-      ...REPORTED('secretsservice'),
-      name: 'Secrets',
-      method: 'GET',
-      target: 'https://api.lishuyu.app/secrets/health',
     },
     {
       id: 'files',
@@ -451,7 +445,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'timeservice',
-      ...REPORTED('timeservice'),
+      ...EDGE_PROBE,
       name: 'Time',
       method: 'GET',
       // Gateway path shortened from /timeservice to /time (2026-07-02, matches
