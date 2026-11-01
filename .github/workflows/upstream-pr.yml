@@ -48,6 +48,8 @@ jobs:
             git reset -q --hard upstream/main
             note="**Conflicts with main.** This branch is upstream as-is; merge it locally and resolve."
           fi
+          # upstream/<sha> branches belong to this workflow: a rerun deletes its own earlier attempt first
+          git push -q origin --delete "$branch" 2>/dev/null || true
           if ! git push -q origin "$branch"; then
             # the workflow token cannot push commits that touch .github/workflows
             gh issue create --title "Upstream $head needs a manual merge" \
