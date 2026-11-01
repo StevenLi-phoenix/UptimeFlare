@@ -2,7 +2,7 @@
 
 All notable changes to this fork are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.1] - 2026-11-01
+## [0.2.0] - 2026-11-01
 
 ### Changed
 
