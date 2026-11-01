@@ -1,0 +1,60 @@
+name: Upstream PR
+
+# Weekly: merge lyc8503/UptimeFlare main into a branch and open a PR, so upstream fixes arrive
+# for review. The upstream "Upstream Sync" workflow (sync.yaml) resets the repo to upstream and
+# would drop this fork's changes (core report controller, alert mails, uptime.config.ts); don't
+# run it. Deploy stays manual: gh workflow run deploy.yml.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  upstream-pr:
+    if: github.repository == 'StevenLi-phoenix/UptimeFlare'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge upstream into a branch and open a PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/lyc8503/UptimeFlare.git
+          git fetch -q upstream main
+          behind=$(git rev-list --count HEAD..upstream/main)
+          echo "upstream commits not in main: $behind"
+          if [ "$behind" -eq 0 ]; then exit 0; fi
+          open=$(gh pr list --state open --json headRefName -q '.[].headRefName' | grep '^upstream/' || true)
+          if [ -n "$open" ]; then echo "an upstream PR is already open ($open); review it first"; exit 0; fi
+          head=$(git rev-parse --short upstream/main)
+          branch="upstream/$head"
+          git switch -c "$branch"
+          if git merge --no-edit upstream/main; then
+            note="Merges cleanly."
+          else
+            git merge --abort
+            git reset -q --hard upstream/main
+            note="**Conflicts with main.** This branch is upstream as-is; merge it locally and resolve."
+          fi
+          if ! git push -q origin "$branch"; then
+            # the workflow token cannot push commits that touch .github/workflows
+            gh issue create --title "Upstream $head needs a manual merge" \
+              --body "Pushing $branch failed, probably because upstream changed .github/workflows. Merge lyc8503/UptimeFlare main by hand." \
+              || echo "::warning::push failed and issues are disabled; merge upstream $head by hand"
+            exit 0
+          fi
+          gh pr create --base main --head "$branch" \
+            --title "chore: merge upstream lyc8503/UptimeFlare ($head)" \
+            --body "$behind upstream commit(s). $note Check uptime.config.ts and worker/ against this fork's changes before merging. Deploy stays manual (\`gh workflow run deploy.yml\`)."

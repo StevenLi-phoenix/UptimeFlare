@@ -2,6 +2,12 @@
 
 All notable changes to this fork are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- Weekly "Upstream PR" workflow: merges lyc8503/UptimeFlare `main` into an `upstream/<sha>` branch and opens a PR (or reports a conflict), instead of the upstream `sync.yaml` reset that would drop this fork's changes.
+
 ## [0.3.0] - 2026-11-01
 
 ### Added
