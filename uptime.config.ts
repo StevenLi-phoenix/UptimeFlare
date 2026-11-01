@@ -301,12 +301,12 @@ const HOSTNAME_PROBE = { hideLatencyChart: true }
 // rollback point, so these are probed on the public URL instead. Moving a service here
 // is part of its cutover: drop REPORTED() from its monitor and spread EDGE_PROBE.
 const EDGE_PROBE = { hideLatencyChart: true }
-const EDGE_SERVICES = ['timeservice', 'commentservice']
-const API_PATH_SERVICES = [
-  'messageservice', 'notificationservice', 'emailservice', 'wechatservice',
-  'kvservice', 'oss', 'files',
+const EDGE_SERVICES = [
+  'timeservice', 'commentservice', 'messageservice', 'notificationservice', 'emailservice',
+  'mailbox', 'files', 'files-p2p', 'pages', 'turingtest',
 ]
-const HOSTNAME_MONITORS = ['registry', 'auth', 'displayservice', 'pages', 'mailbox', 'locationservice']
+const API_PATH_SERVICES = ['wechatservice', 'kvservice']
+const HOSTNAME_MONITORS = ['registry', 'auth', 'displayservice', 'locationservice']
 
 const pageConfig: PageConfig = {
   title: 'lishuyu.app status',
@@ -384,7 +384,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'messageservice',
-      ...REPORTED('messageservice'),
+      ...EDGE_PROBE,
       name: 'Messages',
       method: 'GET',
       target: 'https://api.lishuyu.app/message/health',
@@ -392,7 +392,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'notificationservice',
-      ...REPORTED('notificationservice'),
+      ...EDGE_PROBE,
       name: 'Notify',
       method: 'GET',
       target: 'https://api.lishuyu.app/notify/health',
@@ -400,7 +400,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'emailservice',
-      ...REPORTED('emailservice'),
+      ...EDGE_PROBE,
       name: 'Email',
       method: 'GET',
       target: 'https://api.lishuyu.app/email/health',
@@ -430,18 +430,19 @@ const workerConfig: WorkerConfig = {
       target: 'https://api.lishuyu.app/kv/health',
     },
     {
-      id: 'oss',
-      ...REPORTED('oss'),
-      name: 'OSS',
-      method: 'GET',
-      target: 'https://api.lishuyu.app/oss/health',
-    },
-    {
       id: 'files',
-      ...REPORTED('files'),
+      ...EDGE_PROBE,
       name: 'Files',
       method: 'GET',
       target: 'https://api.lishuyu.app/files/health',
+    },
+    {
+      id: 'files-p2p',
+      ...EDGE_PROBE,
+      name: 'Files P2P',
+      method: 'GET',
+      target: 'https://api.lishuyu.app/files/p2p/config',
+      tooltip: 'Peer-to-peer file transfer signaling',
     },
     {
       id: 'timeservice',
@@ -455,7 +456,7 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'pages',
-      ...HOSTNAME_PROBE,
+      ...EDGE_PROBE,
       name: 'Pages',
       method: 'GET',
       // Pages moved to pages.shuyuli.com on 2026-08-30 (page.lishuyu.app DNS
@@ -466,12 +467,12 @@ const workerConfig: WorkerConfig = {
     },
     {
       id: 'mailbox',
-      ...HOSTNAME_PROBE,
+      ...EDGE_PROBE,
       name: 'Mailbox',
       method: 'GET',
       target: 'https://mail.lishuyu.app/health',
       statusPageLink: 'https://mail.lishuyu.app/',
-      tooltip: 'Catch-all inbox for *@lishuyu.app',
+      tooltip: 'Inbox for ai@lishuyu.app (AI-triaged)',
     },
     {
       id: 'locationservice',
@@ -480,6 +481,14 @@ const workerConfig: WorkerConfig = {
       method: 'GET',
       // moved off the api gateway to its own subdomain (2026-06-11)
       target: 'https://location.lishuyu.app/health',
+    },
+    {
+      id: 'turingtest',
+      ...EDGE_PROBE,
+      name: 'Turing Test',
+      method: 'GET',
+      target: 'https://turning-test.lishuyu.app/turingtest/health',
+      statusPageLink: 'https://turning-test.lishuyu.app/',
     },
     {
       id: 'blog',

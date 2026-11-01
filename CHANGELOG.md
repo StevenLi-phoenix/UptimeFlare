@@ -2,6 +2,20 @@
 
 All notable changes to this fork are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-11-01
+
+### Added
+
+- `files-p2p` and `turingtest` monitors in the "Cloudflare Workers" group.
+
+### Changed
+
+- Messages, Notify, Email, Mailbox, Files and Pages moved to the "Cloudflare Workers" group and are probed on their public URL; mailbox tooltip now names its only inbound address, ai@lishuyu.app.
+
+### Removed
+
+- OSS row: oss is retired as a standalone service (it is now the files Worker's internal R2 byte store).
+
 ## [0.2.0] - 2026-11-01
 
 ### Changed
