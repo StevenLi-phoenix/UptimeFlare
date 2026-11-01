@@ -1,9 +1,18 @@
 name: Upstream PR
 
-# Weekly: merge lyc8503/UptimeFlare main into a branch and open a PR, so upstream fixes arrive
-# for review. The upstream "Upstream Sync" workflow (sync.yaml) resets the repo to upstream and
-# would drop this fork's changes (core report controller, alert mails, uptime.config.ts); don't
-# run it. Deploy stays manual: gh workflow run deploy.yml.
+# Weekly: merge lyc8503/UptimeFlare main into an upstream/<sha> branch and open a PR that lists
+# exactly what comes in.
+#
+# What is kept automatically and what waits for a human:
+#   Auto-merged (merge commit, then deployed) when ALL of these hold:
+#     - git merges upstream into main without conflicts;
+#     - upstream does not touch the files that carry this fork's own setup
+#       (uptime.config.ts, wrangler.toml, worker/wrangler.toml, deploy.tf, deploy/, .github/);
+#     - on the merged tree, the worker tests, the worker build and the Pages build pass.
+#   Otherwise the PR stays open with the reason in a comment.
+# A merge made with GITHUB_TOKEN does not fire the push trigger, so deploy.yml is dispatched.
+# The upstream sync.yaml resets the repo to upstream and would drop this fork's changes
+# (core report controller, alert mails, uptime.config.ts); don't run it.
 
 on:
   schedule:
@@ -14,57 +23,54 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  actions: write
 
 jobs:
   upstream-pr:
     if: github.repository == 'StevenLi-phoenix/UptimeFlare'
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # this repo is a fork: without --repo, gh targets the parent lyc8503/UptimeFlare
+      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Merge upstream into a branch and open a PR
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Merge upstream into a branch
+        id: merge
         run: |
           set -euo pipefail
-          # this repo is a fork: without --repo, gh targets the parent lyc8503/UptimeFlare
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/lyc8503/UptimeFlare.git
           git fetch -q upstream main
           behind=$(git rev-list --count HEAD..upstream/main)
           echo "upstream commits not in main: $behind"
-          if [ "$behind" -eq 0 ]; then exit 0; fi
-          open=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --json headRefName -q '.[].headRefName' | grep '^upstream/' || true)
-          if [ -n "$open" ]; then echo "an upstream PR is already open ($open); review it first"; exit 0; fi
+          if [ "$behind" -eq 0 ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          open=$(gh pr list --state open --json headRefName -q '.[].headRefName' | grep '^upstream/' || true)
+          if [ -n "$open" ]; then echo "an upstream PR is already open ($open); review it first"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+
           head=$(git rev-parse --short upstream/main)
           branch="upstream/$head"
+          base=$(git merge-base HEAD upstream/main)
+          up_files=$(git diff --name-only "$base" upstream/main)
+          fork_files=$(git diff --name-only "$base" HEAD)
+          overlap=$(comm -12 <(echo "$up_files" | sort) <(echo "$fork_files" | sort) | grep . || true)
+          protected=$(echo "$up_files" | grep -E '^(uptime\.config\.ts|wrangler\.toml|worker/wrangler\.toml|deploy\.tf|deploy/|\.github/)' || true)
+
           git switch -c "$branch"
           if git merge --no-edit upstream/main; then
-            note="Merges cleanly."
+            clean=true
           else
             git merge --abort
             git reset -q --hard upstream/main
-            note="**Conflicts with main.** This branch is upstream as-is; merge it locally and resolve."
+            clean=false
           fi
-          # upstream/<sha> branches belong to this workflow: a rerun deletes its own earlier attempt first
-          git push -q origin --delete "$branch" 2>/dev/null || true
-          if ! git push -q origin "$branch"; then
-            # the workflow token cannot push commits that touch .github/workflows
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "Upstream $head needs a manual merge" \
-              --body "Pushing $branch failed, probably because upstream changed .github/workflows. Merge lyc8503/UptimeFlare main by hand." \
-              || echo "::warning::push failed and issues are disabled; merge upstream $head by hand"
-            exit 0
-          fi
-          # PR body: what exactly comes in, and where it touches files this fork also changed
-          base=$(git merge-base origin/main upstream/main)
-          up_files=$(git diff --name-only "$base" upstream/main)
-          fork_files=$(git diff --name-only "$base" origin/main)
-          overlap=$(comm -12 <(echo "$up_files" | sort) <(echo "$fork_files" | sort) | grep . || true)
+
           {
-            echo "Merges $behind commit(s) from [lyc8503/UptimeFlare](https://github.com/lyc8503/UptimeFlare) \`main\` (up to \`$head\`). $note"
+            echo "Merges $behind commit(s) from [lyc8503/UptimeFlare](https://github.com/lyc8503/UptimeFlare) \`main\` (up to \`$head\`)."
             echo
             echo "## Commits"
             echo
@@ -79,7 +85,7 @@ jobs:
             echo
             echo "## Overlap with this fork's own changes"
             echo
-            if [ -n "$overlap" ]; then echo "$overlap" | sed 's/^/- `/; s/$/` (changed here too: review closely)/'; else echo "None: upstream only touches files this fork has not changed."; fi
+            if [ -n "$overlap" ]; then echo "$overlap" | sed 's/^/- `/; s/$/` (changed here too)/'; else echo "None."; fi
             echo
             echo "<details><summary>Full upstream diff</summary>"
             echo
@@ -87,9 +93,69 @@ jobs:
             git diff "$base" upstream/main | head -c 50000
             echo '```'
             echo "</details>"
+          } > "$RUNNER_TEMP/body.md"
+
+          {
+            echo "branch=$branch"
+            echo "head=$head"
+            echo "clean=$clean"
+            echo "protected<<EOF"; echo "$protected"; echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.clean == 'true'
+        with:
+          node-version: 22.x
+
+      - name: Verify the merged tree (worker tests, worker build, Pages build)
+        id: verify
+        if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.clean == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          npm install
+          (cd worker && npm install && npm test && npx wrangler deploy src/index.ts --outdir dist --dry-run)
+          npx @cloudflare/next-on-pages
+
+      - name: Open the PR; auto-merge and deploy when allowed
+        if: steps.merge.outputs.skip != 'true'
+        env:
+          BRANCH: ${{ steps.merge.outputs.branch }}
+          HEAD_SHA: ${{ steps.merge.outputs.head }}
+          CLEAN: ${{ steps.merge.outputs.clean }}
+          PROTECTED: ${{ steps.merge.outputs.protected }}
+          VERIFY: ${{ steps.verify.outcome }}
+        run: |
+          set -euo pipefail
+          reasons=""
+          [ "$CLEAN" = true ] || reasons="$reasons- git conflicts with main: this branch is upstream as-is; merge it locally and resolve."$'\n'
+          [ -z "$PROTECTED" ] || reasons="$reasons- upstream changes files that carry this fork's setup: $(echo $PROTECTED | sed 's/ /, /g')"$'\n'
+          if [ "$CLEAN" = true ] && [ "$VERIFY" != success ]; then reasons="$reasons- worker tests or a build failed on the merged tree (verify step: $VERIFY)."$'\n'; fi
+          {
             echo
-            echo "Merging to \`main\` triggers \`deploy.yml\`. After the deploy, check the status page."
-          } > /tmp/pr-body.md
-          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
-            --title "chore: merge upstream lyc8503/UptimeFlare ($head)" \
-            --body-file /tmp/pr-body.md
+            if [ -z "$reasons" ]; then
+              echo "**Auto-merge**: merges cleanly, touches none of this fork's setup files, and the worker tests, worker build and Pages build pass. Merged and deployed by the workflow."
+            else
+              echo "**Not auto-merged**, review needed:"
+              echo "$reasons"
+            fi
+          } >> "$RUNNER_TEMP/body.md"
+
+          # upstream/<sha> branches belong to this workflow: a rerun deletes its own earlier attempt first
+          git push -q origin --delete "$BRANCH" 2>/dev/null || true
+          if ! git push -q origin "$BRANCH"; then
+            # the workflow token cannot push commits that touch .github/workflows
+            gh issue create --title "Upstream $HEAD_SHA needs a manual merge" \
+              --body "Pushing $BRANCH failed, probably because upstream changed .github/workflows. Merge lyc8503/UptimeFlare main by hand." \
+              || echo "::warning::push failed and issues are disabled; merge upstream $HEAD_SHA by hand"
+            exit 0
+          fi
+          url=$(gh pr create --base main --head "$BRANCH" \
+            --title "chore: merge upstream lyc8503/UptimeFlare ($HEAD_SHA)" \
+            --body-file "$RUNNER_TEMP/body.md")
+          echo "PR: $url"
+          if [ -z "$reasons" ]; then
+            gh pr merge "$url" --merge --delete-branch --subject "chore: merge upstream lyc8503/UptimeFlare ($HEAD_SHA)"
+            gh workflow run deploy.yml --ref main
+            echo "merged and dispatched deploy.yml"
+          fi
