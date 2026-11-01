@@ -58,6 +58,38 @@ jobs:
               || echo "::warning::push failed and issues are disabled; merge upstream $head by hand"
             exit 0
           fi
+          # PR body: what exactly comes in, and where it touches files this fork also changed
+          base=$(git merge-base origin/main upstream/main)
+          up_files=$(git diff --name-only "$base" upstream/main)
+          fork_files=$(git diff --name-only "$base" origin/main)
+          overlap=$(comm -12 <(echo "$up_files" | sort) <(echo "$fork_files" | sort) | grep . || true)
+          {
+            echo "Merges $behind commit(s) from [lyc8503/UptimeFlare](https://github.com/lyc8503/UptimeFlare) \`main\` (up to \`$head\`). $note"
+            echo
+            echo "## Commits"
+            echo
+            git log --reverse --format='- [`%h`](https://github.com/lyc8503/UptimeFlare/commit/%H) %ad %an: %s' --date=short origin/main..upstream/main \
+              | sed -E 's@\(#([0-9]+)\)@([#\1](https://github.com/lyc8503/UptimeFlare/pull/\1))@'
+            echo
+            echo "## Files"
+            echo
+            echo '```'
+            git diff --stat "$base" upstream/main
+            echo '```'
+            echo
+            echo "## Overlap with this fork's own changes"
+            echo
+            if [ -n "$overlap" ]; then echo "$overlap" | sed 's/^/- `/; s/$/` (changed here too: review closely)/'; else echo "None: upstream only touches files this fork has not changed."; fi
+            echo
+            echo "<details><summary>Full upstream diff</summary>"
+            echo
+            echo '```diff'
+            git diff "$base" upstream/main | head -c 50000
+            echo '```'
+            echo "</details>"
+            echo
+            echo "Merging to \`main\` triggers \`deploy.yml\`. After the deploy, check the status page."
+          } > /tmp/pr-body.md
           gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
             --title "chore: merge upstream lyc8503/UptimeFlare ($head)" \
-            --body "$behind upstream commit(s). $note Check uptime.config.ts and worker/ against this fork's changes before merging. Deploy stays manual (\`gh workflow run deploy.yml\`)."
+            --body-file /tmp/pr-body.md
