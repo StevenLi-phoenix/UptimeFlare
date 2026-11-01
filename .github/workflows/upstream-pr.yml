@@ -29,6 +29,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # this repo is a fork: without --repo, gh targets the parent lyc8503/UptimeFlare
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/lyc8503/UptimeFlare.git
@@ -36,7 +37,7 @@ jobs:
           behind=$(git rev-list --count HEAD..upstream/main)
           echo "upstream commits not in main: $behind"
           if [ "$behind" -eq 0 ]; then exit 0; fi
-          open=$(gh pr list --state open --json headRefName -q '.[].headRefName' | grep '^upstream/' || true)
+          open=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --json headRefName -q '.[].headRefName' | grep '^upstream/' || true)
           if [ -n "$open" ]; then echo "an upstream PR is already open ($open); review it first"; exit 0; fi
           head=$(git rev-parse --short upstream/main)
           branch="upstream/$head"
@@ -52,11 +53,11 @@ jobs:
           git push -q origin --delete "$branch" 2>/dev/null || true
           if ! git push -q origin "$branch"; then
             # the workflow token cannot push commits that touch .github/workflows
-            gh issue create --title "Upstream $head needs a manual merge" \
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "Upstream $head needs a manual merge" \
               --body "Pushing $branch failed, probably because upstream changed .github/workflows. Merge lyc8503/UptimeFlare main by hand." \
               || echo "::warning::push failed and issues are disabled; merge upstream $head by hand"
             exit 0
           fi
-          gh pr create --base main --head "$branch" \
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
             --title "chore: merge upstream lyc8503/UptimeFlare ($head)" \
             --body "$behind upstream commit(s). $note Check uptime.config.ts and worker/ against this fork's changes before merging. Deploy stays manual (\`gh workflow run deploy.yml\`)."
