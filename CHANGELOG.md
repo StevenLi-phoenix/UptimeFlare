@@ -7,6 +7,7 @@ All notable changes to this fork are documented here. Format: [Keep a Changelog]
 ### Changed
 
 - Merged upstream lyc8503/UptimeFlare up to `8035521`: the remote-checker Durable Object name includes its location hint (#223), footer spelling (#225).
+- Dropped the KV monitor: the platform's kvservice is retired on phm (its contract lives in the `api-cf-services` Worker as Workers KV, with no public route), so `https://api.lishuyu.app/kv/health` stops answering.
 
 ### Added
 

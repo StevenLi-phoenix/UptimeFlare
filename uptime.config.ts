@@ -305,7 +305,7 @@ const EDGE_SERVICES = [
   'timeservice', 'commentservice', 'messageservice', 'notificationservice', 'emailservice',
   'mailbox', 'files', 'files-p2p', 'pages', 'turingtest',
 ]
-const API_PATH_SERVICES = ['wechatservice', 'kvservice']
+const API_PATH_SERVICES = ['wechatservice']
 const HOSTNAME_MONITORS = ['registry', 'auth', 'displayservice', 'locationservice']
 
 const pageConfig: PageConfig = {
@@ -421,13 +421,6 @@ const workerConfig: WorkerConfig = {
       method: 'GET',
       target: 'https://api.lishuyu.app/wechat/health',
       tooltip: 'WeChat Official Account publishing relay',
-    },
-    {
-      id: 'kvservice',
-      ...REPORTED('kvservice'),
-      name: 'KV',
-      method: 'GET',
-      target: 'https://api.lishuyu.app/kv/health',
     },
     {
       id: 'files',
