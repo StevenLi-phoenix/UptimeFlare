@@ -11,6 +11,18 @@ export type CheckStatus = { ping: number; up: boolean; err: string; report?: Cor
 /** A plugin serves in these phases (probation = newly deployed, still answering). */
 const SERVING = new Set(['active', 'probation'])
 
+// `expectedHeaders` of a monitor against the response: the first mismatch, or null.
+export function checkExpectedHeaders(
+  monitor: { expectedHeaders?: Record<string, string> },
+  headers: Headers
+): string | null {
+  for (const [name, want] of Object.entries(monitor.expectedHeaders ?? {})) {
+    const got = headers.get(name)
+    if (got !== want) return `Expected header ${name}: ${want}, Got: ${got ?? 'none'}`
+  }
+  return null
+}
+
 export function parseCoreReport(body: unknown): CoreReport | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null
   const plugins = (body as { plugins?: unknown }).plugins

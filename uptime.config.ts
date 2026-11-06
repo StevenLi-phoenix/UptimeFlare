@@ -302,7 +302,7 @@ const HOSTNAME_PROBE = { hideLatencyChart: true }
 // is part of its cutover: drop REPORTED() from its monitor and spread EDGE_PROBE.
 const EDGE_PROBE = { hideLatencyChart: true }
 const EDGE_SERVICES = [
-  'timeservice', 'commentservice', 'messageservice', 'notificationservice', 'emailservice',
+  'timeservice', 'commentservice', 'commentthread', 'messageservice', 'notificationservice', 'emailservice',
   'mailbox', 'files', 'files-p2p', 'pages', 'turingtest',
 ]
 const API_PATH_SERVICES = ['wechatservice']
@@ -413,6 +413,19 @@ const workerConfig: WorkerConfig = {
       method: 'GET',
       target: 'https://api.lishuyu.app/comments/health',
       tooltip: 'Blog comments (LLM-moderated)',
+    },
+    {
+      // /health says the Worker answers. This reads a thread from the database
+      // the way a page on the blog does, CORS included.
+      id: 'commentthread',
+      ...EDGE_PROBE,
+      name: 'Comments (read + CORS)',
+      method: 'GET',
+      target: 'https://api.lishuyu.app/comments/posts/__uptime_probe__',
+      headers: { origin: 'https://blog.lishuyu.app' },
+      responseKeyword: '"comments"',
+      expectedHeaders: { 'access-control-allow-origin': 'https://blog.lishuyu.app' },
+      tooltip: 'Blog comment thread as a reader gets it',
     },
     {
       id: 'wechatservice',

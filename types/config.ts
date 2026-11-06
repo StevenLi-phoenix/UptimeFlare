@@ -43,6 +43,9 @@ export type MonitorTarget = {
   body?: string
   responseKeyword?: string
   responseForbiddenKeyword?: string
+  // Response headers the check must see, e.g. CORS for an API browsers call.
+  // HTTP checks from the Worker only (not Globalping or the proxy).
+  expectedHeaders?: { [key: string]: string }
   checkProxy?: string
   checkProxyFallback?: boolean
   // Parse the response as core's plugin report (GET /health: { ok, plugins: { id: phase } })

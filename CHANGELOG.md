@@ -11,6 +11,8 @@ All notable changes to this fork are documented here. Format: [Keep a Changelog]
 
 ### Added
 
+- `expectedHeaders` on HTTP monitors: the check fails when a response header is missing or different.
+- "Comments (read + CORS)" monitor: reads a comment thread with the blog's Origin, so a broken database or CORS shows as down while `/comments/health` stays green.
 - Weekly "Upstream PR" workflow: merges lyc8503/UptimeFlare `main` into an `upstream/<sha>` branch and opens a PR (or reports a conflict), instead of the upstream `sync.yaml` reset that would drop this fork's changes. The PR body lists each upstream commit, the diffstat, the files this fork also changed, and the full diff. It merges and deploys on its own when the merge is clean, upstream leaves this fork's setup files alone (`uptime.config.ts`, wrangler configs, `deploy.tf`, `deploy/`, `.github/`) and the worker tests, worker build and Pages build pass; otherwise the PR stays open with the reason.
 
 ## [0.3.0] - 2026-11-01

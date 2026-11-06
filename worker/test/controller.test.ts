@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { deriveReportedStatus, parseCoreReport } from '../src/controller.ts'
+import { checkExpectedHeaders, deriveReportedStatus, parseCoreReport } from '../src/controller.ts'
 
 const up = (report: unknown) => ({ ping: 42, up: true, err: '', report: parseCoreReport(report) ?? undefined })
 
@@ -43,4 +43,23 @@ test('reachable core without a report counts as down for named plugins', () => {
 
 test('rows without a plugin follow core reachability only', () => {
   assert.deepEqual(deriveReportedStatus(undefined, up({ ok: false, plugins: {} })), { ping: 42, up: true, err: '' })
+})
+
+test('expected headers pass when every one matches, whatever the name case', () => {
+  const monitor = { expectedHeaders: { 'Access-Control-Allow-Origin': 'https://blog.lishuyu.app' } }
+  const headers = new Headers({ 'access-control-allow-origin': 'https://blog.lishuyu.app' })
+  assert.equal(checkExpectedHeaders(monitor, headers), null)
+  assert.equal(checkExpectedHeaders({}, headers), null)
+})
+
+test('a missing or different expected header fails with what was seen', () => {
+  const monitor = { expectedHeaders: { 'access-control-allow-origin': 'https://blog.lishuyu.app' } }
+  assert.equal(
+    checkExpectedHeaders(monitor, new Headers()),
+    'Expected header access-control-allow-origin: https://blog.lishuyu.app, Got: none'
+  )
+  assert.equal(
+    checkExpectedHeaders(monitor, new Headers({ 'access-control-allow-origin': '*' })),
+    'Expected header access-control-allow-origin: https://blog.lishuyu.app, Got: *'
+  )
 })
