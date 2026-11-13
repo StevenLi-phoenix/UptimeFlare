@@ -303,7 +303,7 @@ const HOSTNAME_PROBE = { hideLatencyChart: true }
 const EDGE_PROBE = { hideLatencyChart: true }
 const EDGE_SERVICES = [
   'timeservice', 'commentservice', 'commentthread', 'messageservice', 'notificationservice', 'emailservice',
-  'mailbox', 'files', 'files-p2p', 'pages', 'turingtest',
+  'mailbox', 'files', 'files-p2p', 'pages',
 ]
 const API_PATH_SERVICES = ['wechatservice']
 const HOSTNAME_MONITORS = ['registry', 'auth', 'displayservice', 'locationservice']
@@ -487,14 +487,6 @@ const workerConfig: WorkerConfig = {
       method: 'GET',
       // moved off the api gateway to its own subdomain (2026-06-11)
       target: 'https://location.lishuyu.app/health',
-    },
-    {
-      id: 'turingtest',
-      ...EDGE_PROBE,
-      name: 'Turing Test',
-      method: 'GET',
-      target: 'https://turning-test.lishuyu.app/turingtest/health',
-      statusPageLink: 'https://turning-test.lishuyu.app/',
     },
     {
       id: 'blog',
